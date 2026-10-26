@@ -5,6 +5,7 @@
 <link rel="apple-touch-icon" href="icons/icon-180.png">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="配色ラボ">
+<script>window.GUNPLA_API="https://gunpla-lab.pokefam-alarm.workers.dev/";</script>
 <title>ガンプラ配色ラボ</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Dela+Gothic+One&family=Zen+Kaku+Gothic+New:wght@400;700&family=JetBrains+Mono:wght@500&display=swap">
@@ -853,11 +854,13 @@ function useImage(im,slot,kit){
 
 /* ---------- キットをさがす ---------- */
 const norm=s=>s.normalize("NFKC").toLowerCase().replace(/[ぁ-ゖ]/g,c=>String.fromCharCode(c.charCodeAt(0)+0x60)).replace(/[\s・･\-‐ー_\/.（）()「」]/g,"");
-const KITS=(window.GUNPLA_KITS||[]).map(([cat,line,name,series,alias])=>({cat,line,name,series,label:line+" "+name,key:norm([line,name,series,alias||""].join(" "))}));
+const KITS=(window.GUNPLA_KITS||[]).map(([cat,line,name,series,alias])=>({cat,line,name,series,alias:alias||"",label:line+" "+name,key:norm([line,name,series,alias||""].join(" "))}));
 const POPULAR=["HG ガンダム・エアリアル","HG ジークアクス","HGUC RX-78-2 ガンダム","HGUC νガンダム","HGUC シャア専用ザクII","HGCE ストライクフリーダムガンダム","HG ガンダムバルバトスルプスレクス","RG νガンダム","RG RX-78-2 ガンダム Ver.2.0","MG RX-78-2 ガンダム Ver.3.0","MG サザビー Ver.Ka","PG UNLEASHED RX-78-2 ガンダム","MGSD フリーダムガンダム","MGSD クシャトリヤ"];
 const GRADES=[["all","すべて"],["HG","HG"],["RG","RG"],["MG","MG"],["PG","PG"],["SD","SD・MGSD"],["他","EG・FM など"]];
 const KINDS=[["official","公式の見本","bandai-hobby"],["back","後ろ姿","背面 レビュー"],["works","塗装作例","作例"],["any","いろいろ",""]];
-let grade="all",kind="official",imgFirst=0,imgBusy=false,serverOK=null;
+let grade="all",kind="official",imgFirst=0,imgBusy=false,serverOK=null,serverImages=true;
+// 問い合わせ先：Macのサーバーなら同じ場所、スマホアプリ版は取り次ぎ役（GUNPLA_API、公式写真だけ）
+const API=window.GUNPLA_API||"";
 function drawGrades(){const el=$("#grades");el.innerHTML="";
   GRADES.forEach(([k,t])=>{const b=document.createElement("button");b.type="button";b.className="tab";b.textContent=t;b.setAttribute("aria-pressed",grade===k);b.setAttribute("aria-selected",grade===k);
     b.onclick=()=>{grade=k;drawGrades();drawKits();};el.appendChild(b);});}
@@ -880,7 +883,7 @@ async function loadOfficial(k){
   const tok=++offToken;$("#offArea").hidden=true;$("#otherArea").hidden=false;$("#otherBtn").hidden=true;
   if(!(await checkServer()))return;
   toast("公式の写真をさがしています…");
-  try{const j=await (await fetch("api/official?q="+encodeURIComponent(k.label))).json();if(tok!==offToken)return;
+  try{const j=await (await fetch(API+"api/official?q="+encodeURIComponent(k.label)+(k.alias?"&alt="+encodeURIComponent(k.alias):""))).json();if(tok!==offToken)return;
     offPages=j.items||[];
     if(!offPages.length){toast("公式の写真が見つからなかったので、下の画像から選んでください");return;}
     showOfficial(0,true);$("#otherArea").hidden=true;$("#otherBtn").hidden=false;
@@ -902,17 +905,17 @@ async function useOfficial(u,pg,slot){
 function drawKinds(){const el=$("#kinds");el.innerHTML="";
   KINDS.forEach(([k,t])=>{const b=document.createElement("button");b.type="button";b.textContent=t;b.setAttribute("aria-pressed",kind===k);
     b.onclick=()=>{kind=k;drawKinds();searchImages(false);};el.appendChild(b);});}
-async function checkServer(){if(serverOK===null){try{const r=await fetch("api/ping",{cache:"no-store"});serverOK=r.ok&&(await r.json()).ok===true;}catch(e){serverOK=false;}}return serverOK;}
+async function checkServer(){if(serverOK===null){try{const r=await fetch(API+"api/ping",{cache:"no-store"});const j=r.ok?await r.json():{};serverOK=j.ok===true;serverImages=j.images!==false;}catch(e){serverOK=false;}}return serverOK;}
 async function searchImages(more){
   if(imgBusy)return;const el=$("#imgs"),hint=$("#imgHint");
   const q=(curKit.label+" "+KINDS.find(x=>x[0]===kind)[2]).trim();
   if(!more){imgFirst=0;el.innerHTML="";}
-  if(!(await checkServer())){
-    hint.innerHTML=`この画面ではネット画像を直接取り込めません（Macで <code>server.py</code> を起動して開いたときだけ使えます）。
+  if(!(await checkServer())||!serverImages){
+    hint.innerHTML=(serverOK?`ほかのサイトの画像は、スマホアプリ版では直接取り込めません（公式の写真は上から取り込めます）。`:`この画面ではネット画像を直接取り込めません（Macで <code>server.py</code> を起動して開いたときだけ使えます）。`)+`
       <a href="https://www.google.com/search?tbm=isch&q=${encodeURIComponent(q)}" target="_blank" rel="noopener">画像検索を別のタブで開く</a> → 気に入った画像を保存して「この写真を差し替え」から入れてください。`;
     $("#moreImgs").hidden=true;return;}
   imgBusy=true;hint.textContent="検索中…";$("#moreImgs").hidden=true;
-  try{const r=await fetch(`api/images?q=${encodeURIComponent(q)}&first=${imgFirst}`);const j=await r.json();
+  try{const r=await fetch(API+`api/images?q=${encodeURIComponent(q)}&first=${imgFirst}`);const j=await r.json();
     const items=j.items||[];imgFirst+=items.length+1;
     items.forEach(it=>el.appendChild(imgCard(it)));
     hint.textContent=el.children.length?"使いたい画像の「前へ」か「後ろへ」を押すと、作業台に取り込みます。背景が白や単色の画像ほどきれいに塗り分けられます。":"画像が見つかりませんでした。名前を短くするか、別の種類で試してください。";
@@ -924,7 +927,7 @@ function imgCard(it){
   const d=document.createElement("div");d.className="ic";
   d.innerHTML=`<img loading="lazy" referrerpolicy="no-referrer" alt="${esc(it.title)}" src="${esc(it.thumb)}"><div class="src" title="${esc(it.title)}"><a href="${esc(it.page||it.url)}" target="_blank" rel="noopener">${esc(it.host)}</a></div>
     <div class="use"><button type="button" data-s="0" aria-label="前の写真に使う">前へ</button><button type="button" data-s="1" aria-label="後ろの写真に使う">後ろへ</button></div>`;
-  {const im=d.querySelector("img");im.onerror=()=>{if(im.dataset.p){d.remove();return;}im.dataset.p=1;im.src="api/img?u="+encodeURIComponent(it.thumb);};}
+  {const im=d.querySelector("img");im.onerror=()=>{if(im.dataset.p){d.remove();return;}im.dataset.p=1;im.src=API+"api/img?u="+encodeURIComponent(it.thumb);};}
   d.querySelectorAll("button").forEach(b=>b.onclick=async()=>{d.classList.add("loading");
     try{const im=await loadRemote(it);useImage(im,+b.dataset.s,curKit.label);setTimeout(()=>$(".stage").scrollIntoView({block:"start"}),60);}
     catch(e){toast("この画像は取り込めませんでした。別の画像を選んでください");}
@@ -932,7 +935,7 @@ function imgCard(it){
   return d;
 }
 function loadProxied(u,ref){return new Promise((ok,ng)=>{const im=new Image();im.crossOrigin="anonymous";im.onload=()=>ok(im);im.onerror=ng;
-  im.src="api/img?u="+encodeURIComponent(u)+(ref?"&ref="+encodeURIComponent(ref):"");});}
+  im.src=API+"api/img?u="+encodeURIComponent(u)+(ref?"&ref="+encodeURIComponent(ref):"");});}
 async function loadRemote(it){
   try{return await loadProxied(it.url,it.page);}
   catch(e){const im=await loadProxied(it.thumb);toast("元の画像が取れなかったので、小さめの画像を使います");return im;}
